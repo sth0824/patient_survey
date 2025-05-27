@@ -1,0 +1,124 @@
+# .github/workflows/deploy.yml
+
+name: prototype 1 deploy to GitHub Pages
+
+# 1) test1 브랜치에 push 될 때만 동작
+on:
+  push:
+    branches: [test1]
+
+# (선택) UI에서 수동 트리거도 가능하도록 하고 싶다면 아래를 추가하세요.
+#  workflow_dispatch:
+
+# 2) 최소 권한만 부여
+permissions:
+  contents: read   # actions/checkout에 필요
+  pages: write     # actions/deploy-pages에 필요
+  id-token: write  # actions/deploy-pages가 Pages와 통신할 때 필요
+
+jobs:
+  # 3) 빌드 작업
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 3-1) 리포지토리 복제
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 3-2) Node.js 설치 (v18)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      # 3-3) web1 의존성 설치
+      - name: Install web1 dependencies
+        run: npm ci
+        working-directory: ./web1
+
+      # 3-4) web1 빌드 (ESLint 경고 무시)
+      - name: Build web1
+        run: CI=false npm run build
+        working-directory: ./web1
+
+      # 3-5) web2 의존성 설치
+      - name: Install web2 dependencies
+        run: npm ci
+        working-directory: ./web2
+
+      # 3-6) web2 빌드 (ESLint 경고 무시)
+      - name: Build web2
+        run: CI=false npm run build
+        working-directory: ./web2
+
+      # 3-7) 빌드 결과를 dist 폴더로 모으기
+      - name: Collate build outputs
+        run: |
+          mkdir -p dist
+          
+          echo "Copying web1 build output..."
+          if [ -d "web1/build" ]; then
+            cp -r web1/build dist/web1
+          elif [ -d "web1/dist" ]; then
+            cp -r web1/dist dist/web1
+          else
+            echo "Error: web1 build output directory not found"
+            exit 1
+          fi
+
+          echo "Copying web2 build output..."
+          if [ -d "web2/build" ]; then
+            cp -r web2/build dist/web2
+          elif [ -d "web2/dist" ]; then
+            cp -r web2/dist dist/web2
+          else
+            echo "Error: web2 build output directory not found"
+            exit 1
+          fi
+          
+          # 루트 경로에 index.html 추가
+          echo "Creating root index.html..."
+          cat > dist/index.html << 'EOL'
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8" />
+              <title>Patient Survey Project</title>
+              <style>
+                body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
+                .container { max-width: 800px; margin: 0 auto; }
+                .app-link { display: inline-block; margin: 20px; padding: 15px 30px; background-color: #0078d4; color: white; 
+                            text-decoration: none; border-radius: 4px; font-weight: bold; }
+                .app-link:hover { background-color: #005a9e; }
+              </style>
+              <meta http-equiv="refresh" content="0;url=web1/" />
+            </head>
+            <body>
+              <div class="container">
+                <h1>Patient Survey Project</h1>
+                <p>자동으로 Web1으로 이동합니다. 이동하지 않으면 아래 링크를 클릭하세요.</p>
+                <a class="app-link" href="web1/">Web1 앱으로 이동</a>
+                <a class="app-link" href="web2/">Web2 앱으로 이동</a>
+              </div>
+            </body>
+          </html>
+          EOL
+
+      # 3-8) Pages용 아티팩트 업로드 (@v3)
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  # 4) 배포 작업 (build 성공 후 실행)
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # 4-1) 업로드된 아티팩트를 실제 Pages에 배포 (@v4)
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
